@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 interface Message {
@@ -14,12 +14,11 @@ interface Message {
   mediaUrl?: string;
 }
 
-export default function ChatBox() {
+function ChatBoxContent() {
   const [isClient, setIsClient] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
   const [chatName, setChatName] = useState('John Doe');
-  const [chatId, setChatId] = useState('1');
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -62,7 +61,6 @@ export default function ChatBox() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
-  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -176,7 +174,6 @@ export default function ChatBox() {
         };
         
         setMessages(prev => [...prev, message]);
-        setAudioChunks([]);
         
         // Stop all tracks
         stream.getTracks().forEach(track => track.stop());
@@ -184,7 +181,6 @@ export default function ChatBox() {
 
       recorder.start();
       setMediaRecorder(recorder);
-      setAudioChunks(chunks);
       setIsRecording(true);
       setRecordingTime(0);
 
@@ -240,13 +236,9 @@ export default function ChatBox() {
     
     // Get chat info from URL parameters
     const name = searchParams.get('name');
-    const id = searchParams.get('chatId');
     
     if (name) {
       setChatName(decodeURIComponent(name));
-    }
-    if (id) {
-      setChatId(id);
     }
   }, [searchParams]);
 
@@ -830,5 +822,30 @@ export default function ChatBox() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ChatBox() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen relative overflow-hidden" style={{
+        background: 'linear-gradient(135deg, #0b0c1a, #162534, #1d1238, #5c3f2f, #051321ff, #040620ff, #8c5c3f)',
+        backgroundSize: '400% 400%',
+        animation: 'gradientMove 15s ease infinite'
+      }}>
+        <style jsx>{`
+          @keyframes gradientMove {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+        `}</style>
+        <div className="h-screen flex items-center justify-center">
+          <div className="text-white text-xl">Loading...</div>
+        </div>
+      </div>
+    }>
+      <ChatBoxContent />
+    </Suspense>
   );
 }
