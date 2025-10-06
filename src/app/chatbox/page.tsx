@@ -72,7 +72,7 @@ function ChatBoxContent() {
       try {
         const session = sessionRef.current;
         if (!session) {
-          router.push('/login');
+          alert('Session not found. Open this chat via your PHP Start Chat button.');
           return;
         }
 
@@ -81,8 +81,7 @@ function ChatBoxContent() {
         const senderId = isUser ? session.userId : session.astrologerId;
         const senderType: 'user' | 'astrologer' = isUser ? 'user' : 'astrologer';
         if (!senderId) {
-          alert('Missing sender identity. Please re-login.');
-          router.push('/login');
+          alert('Missing sender identity. Open chat from your PHP Start Chat link.');
           return;
         }
 
