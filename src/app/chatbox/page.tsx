@@ -274,10 +274,7 @@ function ChatBoxContent() {
 
     sessionRef.current = s;
     // Only redirect to /login if no session AND URL doesn't provide identity to bootstrap
-    if (!s && !(paramUniqueId && (paramUserId || paramAstrologerId))) {
-      router.push('/login');
-      return;
-    }
+    // Do not redirect to /login anymore; rely on URL params or stay readonly
 
     if (paramName) setChatName(decodeURIComponent(paramName));
 

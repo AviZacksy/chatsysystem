@@ -12,7 +12,7 @@ export default function Home() {
     if (session) {
       router.push('/chatlist');
     } else {
-      router.push('/test-chat'); // Redirect to test page for easy testing
+      router.push('/test-chat');
     }
   }, [router]);
 

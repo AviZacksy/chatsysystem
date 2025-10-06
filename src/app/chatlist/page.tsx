@@ -24,13 +24,11 @@ export default function ChatList() {
 
   useEffect(() => {
     const currentSession = getSession();
-    if (!currentSession) {
-      router.push('/login');
-      return;
-    }
     setSession(currentSession);
     setIsClient(true);
-    loadChatSessions(currentSession);
+    if (currentSession) {
+      loadChatSessions(currentSession);
+    }
   }, [router]);
 
   const loadChatSessions = async (currentSession: AuthSessionData) => {
