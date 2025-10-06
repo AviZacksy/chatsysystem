@@ -9,8 +9,6 @@ import {
   where,
   serverTimestamp,
   updateDoc,
-  deleteDoc,
-  getDoc,
   Timestamp,
   FieldValue
 } from 'firebase/firestore';
@@ -55,10 +53,7 @@ export const createChatSession = async (userId: string, astrologerId: string, ex
   return docRef.id;
 };
 
-// Generate unique ID for chat sessions
-const generateUniqueId = (): string => {
-  return 'chat_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-};
+// (unused) generateUniqueId removed
 
 // Send a message
 export const sendMessage = async (messageData: Omit<ChatMessage, 'id' | 'timestamp'>): Promise<void> => {

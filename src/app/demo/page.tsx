@@ -2,8 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getOrCreateChatSession, getChatSessionByUniqueId } from '../../lib/firestore';
-import { PHPIntegration } from '../../lib/php-integration';
+import { getOrCreateChatSession } from '../../lib/firestore';
 
 export default function DemoPage() {
   const [uniqueId, setUniqueId] = useState('');
