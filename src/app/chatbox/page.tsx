@@ -290,8 +290,8 @@ function ChatBoxContent() {
     // Else resolve via uniqueId (+ ids)
     (async () => {
       if (!paramUniqueId) return;
-      const effectiveUserId = paramUserId || s.userId || '';
-      const effectiveAstroId = paramAstrologerId || s.astrologerId || '';
+      const effectiveUserId = paramUserId || s?.userId || '';
+      const effectiveAstroId = paramAstrologerId || s?.astrologerId || '';
       if (!effectiveUserId || !effectiveAstroId) return;
       try {
         const session = await getOrCreateChatSession(paramUniqueId, effectiveUserId, effectiveAstroId);

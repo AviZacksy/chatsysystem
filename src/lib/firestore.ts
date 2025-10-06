@@ -62,19 +62,15 @@ const generateUniqueId = (): string => {
 
 // Send a message
 export const sendMessage = async (messageData: Omit<ChatMessage, 'id' | 'timestamp'>): Promise<void> => {
+  const { fileUrl, fileName, ...rest } = messageData;
   const message: Omit<ChatMessage, 'id'> = {
-    ...messageData,
+    ...rest,
+    ...(fileUrl ? { fileUrl } : {}),
+    ...(fileName ? { fileName } : {}),
     timestamp: serverTimestamp()
   };
-  // Firestore does not accept undefined fields – remove optional undefined keys
-  if (message.fileUrl === undefined) {
-    delete (message as any).fileUrl;
-  }
-  if (message.fileName === undefined) {
-    delete (message as any).fileName;
-  }
 
-  await addDoc(collection(db, 'messages'), message);
+  await addDoc(collection(db, 'messages'), message as ChatMessage);
   
   // Update chat session with last message
   await updateChatSessionLastMessage(messageData.chatId, messageData.message);
