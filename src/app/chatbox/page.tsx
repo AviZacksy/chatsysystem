@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { ChatMessage, sendMessage, getMessages, uploadFile, getOrCreateChatSession } from '../../lib/firestore';
+import { getSession, setSession } from '../../lib/auth';
 
 interface Message {
   id: string;
@@ -19,40 +21,9 @@ function ChatBoxContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [chatName, setChatName] = useState('John Doe');
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      text: 'Hey! How are you doing?',
-      sender: 'other',
-      timestamp: '10:30 AM',
-      avatar: '👨',
-      status: 'read'
-    },
-    {
-      id: '2',
-      text: 'I\'m doing great! Thanks for asking. How about you?',
-      sender: 'user',
-      timestamp: '10:32 AM',
-      avatar: '👩',
-      status: 'read'
-    },
-    {
-      id: '3',
-      text: 'Pretty good! Just working on some projects. What are you up to?',
-      sender: 'other',
-      timestamp: '10:33 AM',
-      avatar: '👨',
-      status: 'read'
-    },
-    {
-      id: '4',
-      text: 'Same here! Working on a chat application. It\'s coming along nicely.',
-      sender: 'user',
-      timestamp: '10:35 AM',
-      avatar: '👩',
-      status: 'read'
-    }
-  ]);
+  const [chatId, setChatId] = useState<string>('');
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [firebaseMessages, setFirebaseMessages] = useState<ChatMessage[]>([]);
 
   const [newMessage, setNewMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -62,9 +33,13 @@ function ChatBoxContent() {
   const [recordingTime, setRecordingTime] = useState(0);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const sessionRef = useRef(getSession());
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -74,37 +49,76 @@ function ChatBoxContent() {
     scrollToBottom();
   }, [messages]);
 
-  const handleSendMessage = () => {
-    if (newMessage.trim() || selectedFile) {
-      const message: Message = {
-        id: Date.now().toString(),
-        text: newMessage.trim() || '', // Only use user's text, no automatic text
-        sender: 'user',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        avatar: '👩',
-        status: 'sent',
-        type: selectedFile ? (selectedFile.type.startsWith('image/') ? 'image' : 'video') : 'text',
-        mediaUrl: selectedFile ? previewUrl || '' : undefined
-      };
-      setMessages([...messages, message]);
-      setNewMessage('');
-      setSelectedFile(null);
-      setPreviewUrl(null);
-      
-      // Simulate typing indicator
-      setIsTyping(true);
-      setTimeout(() => {
-        setIsTyping(false);
-        const reply: Message = {
-          id: (Date.now() + 1).toString(),
-          text: selectedFile ? 'Nice! I can see your media! 📸' : 'That sounds awesome! Keep up the great work! 🚀',
-          sender: 'other',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          avatar: '👨',
-          status: 'read'
-        };
-        setMessages(prev => [...prev, reply]);
-      }, 2000);
+  // Track scroll position to show a "scroll to bottom" button like WhatsApp
+  useEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      setShowScrollToBottom(!nearBottom);
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    // initialize state
+    onScroll();
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [messagesContainerRef]);
+
+  const handleScrollToBottomClick = () => {
+    messagesContainerRef.current?.scrollTo({ top: messagesContainerRef.current.scrollHeight, behavior: 'smooth' });
+  };
+
+  const handleSendMessage = async () => {
+    if ((newMessage.trim() || selectedFile) && chatId) {
+      try {
+        const session = sessionRef.current;
+        if (!session) {
+          router.push('/login');
+          return;
+        }
+
+        // Determine identity based on role
+        const isUser = session.role === 'user';
+        const senderId = isUser ? session.userId : session.astrologerId;
+        const senderType: 'user' | 'astrologer' = isUser ? 'user' : 'astrologer';
+        if (!senderId) {
+          alert('Missing sender identity. Please re-login.');
+          router.push('/login');
+          return;
+        }
+
+        let fileUrl = '';
+        let messageType: 'text' | 'image' | 'file' = 'text';
+        
+        // Handle file upload if selected
+        if (selectedFile) {
+          fileUrl = await uploadFile(selectedFile, chatId);
+          messageType = selectedFile.type.startsWith('image/') ? 'image' : 'file';
+        }
+
+        // Send message to Firebase
+        await sendMessage({
+          chatId,
+          senderId,
+          senderType,
+          message: newMessage.trim() || (selectedFile ? `📎 ${selectedFile.name}` : ''),
+          messageType,
+          fileUrl: fileUrl || undefined,
+          fileName: selectedFile?.name
+        });
+
+        setNewMessage('');
+        setSelectedFile(null);
+        setPreviewUrl(null);
+        
+        // Simulate typing indicator
+        setIsTyping(true);
+        setTimeout(() => {
+          setIsTyping(false);
+        }, 2000);
+      } catch (error) {
+        console.error('Error sending message:', error);
+        alert('Failed to send message. Please try again.');
+      }
     }
   };
 
@@ -161,7 +175,7 @@ function ChatBoxContent() {
         const audioBlob = new Blob(chunks, { type: 'audio/wav' });
         const audioUrl = URL.createObjectURL(audioBlob);
         
-        // Create audio message
+        // Create audio message (local preview only)
         const message: Message = {
           id: Date.now().toString(),
           text: `🎤 Voice message (${formatTime(recordingTime)})`,
@@ -234,13 +248,89 @@ function ChatBoxContent() {
   useEffect(() => {
     setIsClient(true);
     
-    // Get chat info from URL parameters
-    const name = searchParams.get('name');
-    
-    if (name) {
-      setChatName(decodeURIComponent(name));
+    // Read params early (used for auto-session fallback)
+    const paramName = searchParams?.get('name');
+    const paramChatId = searchParams?.get('id');
+    const paramUniqueId = searchParams?.get('uniqueId');
+    const paramUserId = searchParams?.get('userId');
+    const paramAstrologerId = searchParams?.get('astrologerId');
+
+    // Ensure session; if missing but URL has identity, create a temporary session
+    let s = getSession();
+    if (!s && paramUniqueId && (paramUserId || paramAstrologerId)) {
+      try {
+        setSession({
+          uniqueId: paramUniqueId,
+          role: paramUserId ? 'user' as const : 'astrologer' as const,
+          userId: paramUserId || undefined,
+          astrologerId: paramAstrologerId || undefined,
+          apiBaseUrl: process.env.NEXT_PUBLIC_PHP_API_BASE_URL || 'https://astrosolution-talktoastrologer.com'
+        });
+        s = getSession();
+      } catch {
+        // fall-through to login redirect
+      }
     }
-  }, [searchParams]);
+
+    sessionRef.current = s;
+    // Only redirect to /login if no session AND URL doesn't provide identity to bootstrap
+    if (!s && !(paramUniqueId && (paramUserId || paramAstrologerId))) {
+      router.push('/login');
+      return;
+    }
+
+    if (paramName) setChatName(decodeURIComponent(paramName));
+
+    // If chatId provided, use it directly
+    if (paramChatId) {
+      setChatId(paramChatId);
+      return;
+    }
+
+    // Else resolve via uniqueId (+ ids)
+    (async () => {
+      if (!paramUniqueId) return;
+      const effectiveUserId = paramUserId || s.userId || '';
+      const effectiveAstroId = paramAstrologerId || s.astrologerId || '';
+      if (!effectiveUserId || !effectiveAstroId) return;
+      try {
+        const session = await getOrCreateChatSession(paramUniqueId, effectiveUserId, effectiveAstroId);
+        setChatId(session.id);
+      } catch (e) {
+        console.error('Failed to resolve chat by uniqueId:', e);
+        alert('Unable to open chat. Please try again.');
+      }
+    })();
+  }, [searchParams, router]);
+
+  // Listen to Firebase messages
+  useEffect(() => {
+    if (chatId) {
+      const unsubscribe = getMessages(chatId, (firebaseMessages) => {
+        setFirebaseMessages(firebaseMessages);
+        const displayMessages: Message[] = firebaseMessages.map((msg) => ({
+          id: msg.id || '',
+          text: msg.message,
+          sender: msg.senderType === 'user' ? 'user' : 'other',
+          timestamp: msg.timestamp ? 
+            (msg.timestamp instanceof Date ? 
+              msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) :
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (msg.timestamp as any).toDate ? 
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (msg.timestamp as any).toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) :
+                new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) :
+            new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          avatar: msg.senderType === 'user' ? '👩' : '👨',
+          status: 'read',
+          type: msg.messageType === 'file' ? 'video' : msg.messageType,
+          mediaUrl: msg.fileUrl
+        }));
+        setMessages(displayMessages);
+      });
+      return () => unsubscribe();
+    }
+  }, [chatId]);
 
   if (!isClient) {
     return (
@@ -446,6 +536,12 @@ function ChatBoxContent() {
                 <div className="w-3 h-3 bg-white rounded-full animate-pulse"></div>
                 <span className="text-sm font-medium">Recording... {formatTime(recordingTime)}</span>
               </div>
+            )}
+
+            {showScrollToBottom && (
+              <button onClick={handleScrollToBottomClick} className="fixed bottom-24 right-4 bg-white/20 text-white p-2 rounded-full border border-white/30">
+                ↓
+              </button>
             )}
           </div>
 
@@ -674,7 +770,7 @@ function ChatBoxContent() {
 
       {/* Desktop Layout */}
       <div className="hidden lg:block">
-        <div className="h-screen flex flex-col bg-white max-w-6xl mx-auto shadow-2xl rounded-lg overflow-hidden">
+        <div className="h-screen flex flex-col bg-black/20 backdrop-blur-sm border border-white/10 shadow-2xl max-w-6xl mx-auto rounded-xl overflow-hidden">
           {/* Header */}
           <div className="text-white p-8 flex items-center space-x-4 shadow-lg" style={{
             background: 'linear-gradient(135deg, #0b0c1a, #162534, #1d1238, #5c3f2f, #051321ff, #040620ff, #8c5c3f)',
@@ -709,27 +805,27 @@ function ChatBoxContent() {
           </div>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-gradient-to-b from-gray-50 to-white">
+          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-8 py-6 space-y-6 bg-gradient-to-b from-black/10 to-black/20">
             {messages.map((message) => (
               <div
                 key={message.id}
                 className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'} animate-fadeIn`}
               >
-                <div className={`flex max-w-[65%] ${message.sender === 'user' ? 'flex-row-reverse' : 'flex-row'} items-end space-x-4`}>
+                <div className={`flex max-w-[60%] ${message.sender === 'user' ? 'flex-row-reverse' : 'flex-row'} items-end space-x-4`}>
                   {message.sender === 'other' && (
                     <div className="w-12 h-12 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-xl flex-shrink-0 shadow-md">
                       {message.avatar}
                     </div>
                   )}
-                  <div className={`px-6 py-4 rounded-2xl shadow-sm ${
+                  <div className={`px-5 py-3 rounded-2xl shadow-sm ${
                     message.sender === 'user' 
                       ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-br-md' 
-                      : 'bg-white text-gray-900 rounded-bl-md border border-gray-100'
+                      : 'bg-white/10 text-white rounded-bl-md border border-white/10 backdrop-blur-sm'
                   }`}>
-                    <p className="text-lg leading-relaxed">{message.text}</p>
-                    <div className="flex items-center justify-between mt-3">
-                      <p className={`text-sm ${
-                        message.sender === 'user' ? 'text-blue-200' : 'text-gray-500'
+                    <p className="text-base leading-relaxed">{message.text}</p>
+                    <div className="flex items-center justify-between mt-2">
+                      <p className={`text-xs ${
+                        message.sender === 'user' ? 'text-blue-200' : 'text-white/60'
                       }`}>
                         {message.timestamp}
                       </p>
@@ -775,7 +871,7 @@ function ChatBoxContent() {
           </div>
 
           {/* Input */}
-          <div className="p-8 bg-white border-t border-gray-100 shadow-lg">
+          <div className="px-8 py-6 bg-black/20 backdrop-blur-sm border-t border-white/10 shadow-lg">
             <div className="flex items-end space-x-4">
               <button 
                 onClick={handleGalleryClick}
@@ -799,21 +895,21 @@ function ChatBoxContent() {
                   onChange={(e) => setNewMessage(e.target.value)}
                   onKeyPress={handleKeyPress}
                   placeholder="Type a message..."
-                  className="w-full p-5 border border-white/20 rounded-full resize-none focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-lg bg-white/10 focus:bg-white/20 transition-all duration-200 text-white placeholder-white/60 backdrop-blur-sm"
+                  className="w-full p-4 border border-white/20 rounded-full resize-none focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-base bg-white/10 focus:bg-white/20 transition-all duration-200 text-white placeholder-white/60 backdrop-blur-sm"
                   rows={1}
                 />
               </div>
               <button
                 onClick={handleSendMessage}
                 disabled={!newMessage.trim()}
-                className="text-white p-5 rounded-full transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:scale-105 disabled:hover:scale-100"
+                className="text-white p-4 rounded-full transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:scale-105 disabled:hover:scale-100"
                 style={{
                   background: 'linear-gradient(135deg, #0b0c1a, #162534, #1d1238, #5c3f2f, #051321ff, #040620ff, #8c5c3f)',
                   backgroundSize: '400% 400%',
                   animation: 'gradientMove 15s ease infinite'
                 }}
               >
-                <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
                 </svg>
               </button>
