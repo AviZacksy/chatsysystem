@@ -1,11 +1,11 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function TestChatPage() {
   const router = useRouter();
-  const [baseUrl, setBaseUrl] = useState<string>('https://chatsystem-8zmcjwmr6-avizacksys-projects.vercel.app');
+  const [baseUrl, setBaseUrl] = useState<string>('');
   const [uniqueId, setUniqueId] = useState('CHAT_123_55');
   const [userId, setUserId] = useState('123');
   const [astrologerId, setAstrologerId] = useState('55');
@@ -20,6 +20,12 @@ export default function TestChatPage() {
     }).toString();
     return `${baseUrl.replace(/\/$/, '')}/chatbox?${params}`;
   }, [baseUrl, uniqueId, userId, astrologerId, astrologerName]);
+
+  useEffect(() => {
+    if (!baseUrl && typeof window !== 'undefined') {
+      setBaseUrl(window.location.origin);
+    }
+  }, [baseUrl]);
 
   const openChatHere = () => {
     const params = new URLSearchParams({
@@ -68,19 +74,10 @@ export default function TestChatPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center" style={{
-      background: 'linear-gradient(135deg, #0b0c1a, #162534, #1d1238, #5c3f2f, #051321ff, #040620ff, #8c5c3f)',
-      backgroundSize: '400% 400%',
-      animation: 'gradientMove 15s ease infinite'
+          background: '#fff2cf'
     }}>
-      <style jsx>{`
-        @keyframes gradientMove {
-          0% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
-          100% { background-position: 0% 50%; }
-        }
-      `}</style>
 
-      <div className="bg-white/10 backdrop-blur-md p-8 rounded-2xl shadow-2xl max-w-xl w-full border border-white/10 text-white">
+      <div className="bg-black/20 backdrop-blur-md p-8 rounded-2xl shadow-2xl max-w-xl w-full border border-white/10 text-white">
         <h1 className="text-2xl font-semibold mb-2">Test Chat Deep Link</h1>
         <p className="text-white/80 mb-6 text-sm">Yahan se aap URL generate karke chat open kar sakte ho (same params PHP se pass honge).</p>
 
@@ -95,7 +92,7 @@ export default function TestChatPage() {
             />
             <div className="flex gap-2 mt-1 text-xs">
               <button onClick={() => setBaseUrl(window.location.origin)} className="px-2 py-1 bg-white/10 rounded border border-white/20">Use this host</button>
-              <button onClick={() => setBaseUrl('https://chatsystem-8zmcjwmr6-avizacksys-projects.vercel.app')} className="px-2 py-1 bg-white/10 rounded border border-white/20">Use Production</button>
+              <button onClick={() => setBaseUrl(window.location.origin)} className="px-2 py-1 bg-white/10 rounded border border-white/20">Use Production</button>
             </div>
           </div>
 
@@ -180,6 +177,15 @@ export default function TestChatPage() {
           <div className="mt-4 p-3 rounded bg-black/30 border border-white/10">
             <div className="text-xs text-white/70 mb-1">Generated URL</div>
             <code className="text-sm break-all">{fullUrl}</code>
+          </div>
+
+          <div className="mt-4 text-center space-y-2">
+            <button
+              onClick={() => router.push('/astrologer')}
+              className="text-white/60 hover:text-white transition-colors text-sm block mx-auto"
+            >
+              🔮 Astrologer Dashboard
+            </button>
           </div>
         </div>
       </div>

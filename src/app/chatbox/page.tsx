@@ -38,6 +38,8 @@ function ChatBoxContent() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
+  const [sessionDuration, setSessionDuration] = useState(0);
 
   const sessionRef = useRef(getSession());
 
@@ -45,9 +47,33 @@ function ChatBoxContent() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const formatSessionDuration = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
+  };
+
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Session timer effect
+  useEffect(() => {
+    if (sessionStartTime) {
+      const interval = setInterval(() => {
+        const now = new Date();
+        const duration = Math.floor((now.getTime() - sessionStartTime.getTime()) / 1000);
+        setSessionDuration(duration);
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [sessionStartTime]);
 
   // Track scroll position to show a "scroll to bottom" button like WhatsApp
   useEffect(() => {
@@ -130,8 +156,11 @@ function ChatBoxContent() {
 
   const adjustTextareaHeight = () => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
+      const el = textareaRef.current;
+      el.style.overflow = 'hidden';
+      el.style.height = 'auto';
+      // allow more lines without showing scrollbar
+      el.style.height = el.scrollHeight + 'px';
     }
   };
 
@@ -162,42 +191,79 @@ function ChatBoxContent() {
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      // prefer default device first; if fails, try explicit constraints
+      let stream: MediaStream | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            sampleRate: 44100
+          } 
+        });
+      }
+      
+      // pick best supported mimetype (desktop compatibility)
+      const preferred = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm', 'audio/ogg'];
+      let mimeType: string | undefined;
+      for (const t of preferred) {
+        if (typeof window !== 'undefined' && 'MediaRecorder' in window && MediaRecorder.isTypeSupported(t)) { mimeType = t; break; }
+      }
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       const chunks: Blob[] = [];
 
       recorder.ondataavailable = (event) => {
-        chunks.push(event.data);
+        if (event.data && event.data.size > 0) chunks.push(event.data);
       };
 
-      recorder.onstop = () => {
-        const audioBlob = new Blob(chunks, { type: 'audio/wav' });
-        const audioUrl = URL.createObjectURL(audioBlob);
-        
-        // Create audio message (local preview only)
-        const message: Message = {
-          id: Date.now().toString(),
-          text: `🎤 Voice message (${formatTime(recordingTime)})`,
-          sender: 'user',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          avatar: '👩',
-          status: 'sent',
-          type: 'audio',
-          mediaUrl: audioUrl
-        };
-        
-        setMessages(prev => [...prev, message]);
+      recorder.onstop = async () => {
+        const effectiveType = (mimeType && chunks.length > 0) ? mimeType : (chunks[0]?.type || 'audio/webm');
+        const audioBlob = new Blob(chunks, { type: effectiveType });
         
         // Stop all tracks
         stream.getTracks().forEach(track => track.stop());
+        
+        // Send audio message to Firebase
+        try {
+          const session = sessionRef.current;
+          if (!session || !chatId) {
+            console.error('Missing session or chatId for voice message');
+            return;
+          }
+
+          const isUser = session.role === 'user';
+          const senderId = isUser ? session.userId : session.astrologerId;
+          const senderType: 'user' | 'astrologer' = isUser ? 'user' : 'astrologer';
+          if (!senderId) return;
+
+          const fileExtension = effectiveType.includes('webm') ? 'webm' : 'wav';
+          const audioFile = new File([audioBlob], `voice_${Date.now()}.${fileExtension}`, { type: effectiveType });
+          const fileUrl = await uploadFile(audioFile, chatId);
+
+          await sendMessage({
+            chatId,
+            senderId,
+            senderType,
+            message: `🎤 Voice message (${formatTime(recordingTime)})`,
+            messageType: 'file',
+            fileUrl,
+            fileName: `voice_${Date.now()}.${fileExtension}`
+          });
+
+        } catch (error) {
+          console.error('Error sending voice message:', error);
+          alert('Failed to send voice message. Please try again.');
+        }
       };
 
-      recorder.start();
+      // timeslice ensures desktop fires dataavailable; fallback without timeslice
+      try { recorder.start(1000); } catch { recorder.start(); }
       setMediaRecorder(recorder);
       setIsRecording(true);
       setRecordingTime(0);
 
-      // Start timer
       recordingIntervalRef.current = setInterval(() => {
         setRecordingTime(prev => prev + 1);
       }, 1000);
@@ -209,7 +275,8 @@ function ChatBoxContent() {
   };
 
   const stopRecording = () => {
-    if (mediaRecorder && isRecording) {
+    if (mediaRecorder && isRecording && mediaRecorder.state === 'recording') {
+      try { mediaRecorder.requestData(); } catch {}
       mediaRecorder.stop();
       setIsRecording(false);
       
@@ -226,17 +293,11 @@ function ChatBoxContent() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleVoiceButtonMouseDown = () => {
-    startRecording();
-  };
-
-  const handleVoiceButtonMouseUp = () => {
-    stopRecording();
-  };
-
-  const handleVoiceButtonMouseLeave = () => {
+  const handleVoiceButtonClick = () => {
     if (isRecording) {
       stopRecording();
+    } else {
+      startRecording();
     }
   };
 
@@ -279,7 +340,14 @@ function ChatBoxContent() {
 
     // If chatId provided, use it directly
     if (paramChatId) {
+      // Clear old messages first
+      setMessages([]);
+      setFirebaseMessages([]);
+      
       setChatId(paramChatId);
+      // Start session timer
+      setSessionStartTime(new Date());
+      setSessionDuration(0);
       return;
     }
 
@@ -290,8 +358,18 @@ function ChatBoxContent() {
       const effectiveAstroId = paramAstrologerId || s?.astrologerId || '';
       if (!effectiveUserId || !effectiveAstroId) return;
       try {
-        const session = await getOrCreateChatSession(paramUniqueId, effectiveUserId, effectiveAstroId);
+        // Clear old messages first (fresh start each time)
+        setMessages([]);
+        setFirebaseMessages([]);
+        
+        // Create session with timestamp to ensure fresh session each time
+        const timestampedUniqueId = `${paramUniqueId}_${Date.now()}`;
+        const session = await getOrCreateChatSession(timestampedUniqueId, effectiveUserId, effectiveAstroId);
         setChatId(session.id);
+        
+        // Start session timer
+        setSessionStartTime(new Date());
+        setSessionDuration(0);
       } catch (e) {
         console.error('Failed to resolve chat by uniqueId:', e);
         alert('Unable to open chat. Please try again.');
@@ -319,7 +397,7 @@ function ChatBoxContent() {
             new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           avatar: msg.senderType === 'user' ? '👩' : '👨',
           status: 'read',
-          type: msg.messageType === 'file' ? 'video' : msg.messageType,
+          type: (msg.messageType === 'file' && (msg.fileName?.startsWith('voice_') || (msg.message && msg.message.includes('Voice message')))) ? 'audio' : (msg.messageType === 'file' ? 'video' : msg.messageType),
           mediaUrl: msg.fileUrl
         }));
         setMessages(displayMessages);
@@ -331,7 +409,7 @@ function ChatBoxContent() {
   if (!isClient) {
     return (
       <div className="min-h-screen relative overflow-hidden" style={{
-        background: 'linear-gradient(135deg, #0b0c1a, #162534, #1d1238, #5c3f2f, #051321ff, #040620ff, #8c5c3f)',
+        background: 'linear-gradient(135deg, #1a1a2e, #16213e, #0f3460, #533483, #e94560)',
         backgroundSize: '400% 400%',
         animation: 'gradientMove 15s ease infinite'
       }}>
@@ -344,7 +422,7 @@ function ChatBoxContent() {
         `}</style>
         <div className="h-screen flex flex-col bg-black/20 backdrop-blur-sm shadow-2xl border border-white/10 relative z-10">
           <div className="text-white p-4 flex items-center space-x-3 shadow-lg" style={{
-            background: 'linear-gradient(135deg, #0b0c1a, #162534, #1d1238, #5c3f2f, #051321ff, #040620ff, #8c5c3f)',
+            background: 'linear-gradient(135deg, #1a1a2e, #16213e, #0f3460, #533483, #e94560)',
             backgroundSize: '400% 400%',
             animation: 'gradientMove 15s ease infinite'
           }}>
@@ -375,24 +453,15 @@ function ChatBoxContent() {
 
   return (
         <div className="min-h-screen relative overflow-hidden" style={{
-          background: 'linear-gradient(135deg, #0b0c1a, #162534, #1d1238, #5c3f2f, #051321ff, #040620ff, #8c5c3f)',
-          backgroundSize: '400% 400%',
-          animation: 'gradientMove 15s ease infinite'
+          background: '#fff2cf'
         }}>
-          <style jsx>{`
-            @keyframes gradientMove {
-              0% { background-position: 0% 50%; }
-              50% { background-position: 100% 50%; }
-              100% { background-position: 0% 50%; }
-            }
-          `}</style>
       
       {/* Mobile Layout */}
       <div className="block md:hidden relative z-10">
         <div className="h-screen flex flex-col bg-black/20 backdrop-blur-sm shadow-2xl border border-white/10">
           {/* Header */}
           <div className="text-white p-4 flex items-center space-x-3 sticky top-0 z-10 shadow-lg" style={{
-            background: 'linear-gradient(135deg, #0b0c1a, #162534, #1d1238, #5c3f2f, #051321ff, #040620ff, #8c5c3f)',
+            background: 'linear-gradient(135deg, #1a1a2e, #16213e, #0f3460, #533483, #e94560)',
             backgroundSize: '400% 400%',
             animation: 'gradientMove 15s ease infinite'
           }}>
@@ -411,22 +480,20 @@ function ChatBoxContent() {
               <h1 className="font-semibold text-lg">{chatName}</h1>
               <div className="flex items-center space-x-1">
                 <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                <p className="text-xs text-blue-200">Online</p>
+                <p className="text-xs text-blue-200">
+                  {sessionStartTime ? `Session: ${formatSessionDuration(sessionDuration)}` : 'Online'}
+                </p>
               </div>
             </div>
             <div className="flex space-x-3">
-              <button 
-                className={`transition-colors p-2 rounded-full ${
-                  isRecording 
-                    ? 'bg-red-500 text-white animate-pulse' 
-                    : 'text-white hover:text-blue-200 hover:bg-white/20'
-                }`}
-                onMouseDown={handleVoiceButtonMouseDown}
-                onMouseUp={handleVoiceButtonMouseUp}
-                onMouseLeave={handleVoiceButtonMouseLeave}
-                onTouchStart={handleVoiceButtonMouseDown}
-                onTouchEnd={handleVoiceButtonMouseUp}
-              >
+                  <button
+                    onClick={handleVoiceButtonClick}
+                    className={`transition-colors p-2 rounded-full ${
+                      isRecording
+                        ? 'bg-red-500 text-white animate-pulse'
+                        : 'text-white hover:text-blue-200 hover:bg-white/20'
+                    }`}
+                  >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                 </svg>
@@ -591,7 +658,7 @@ function ChatBoxContent() {
                       onChange={(e) => setNewMessage(e.target.value)}
                       onKeyPress={handleKeyPress}
                       placeholder="Type a message..."
-                      className="w-full p-3 border border-white/20 rounded-full resize-none focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm bg-white/10 focus:bg-white/20 transition-all duration-200 text-white placeholder-white/60 backdrop-blur-sm"
+                      className="w-full p-3 border border-white/20 rounded-full resize-none focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm bg-white/10 focus:bg-white/20 transition-all duration-200 text-white placeholder-white/60 backdrop-blur-sm overflow-hidden"
                       rows={1}
                     />
                   </div>
@@ -600,7 +667,7 @@ function ChatBoxContent() {
                     disabled={!newMessage.trim() && !selectedFile}
                     className="text-white p-3 rounded-full transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:scale-105 disabled:hover:scale-100"
                     style={{
-                      background: 'linear-gradient(135deg, #0b0c1a, #162534, #1d1238, #5c3f2f, #051321ff, #040620ff, #8c5c3f)',
+                      background: 'linear-gradient(135deg, #1a1a2e, #16213e, #0f3460, #533483, #e94560)',
                       backgroundSize: '400% 400%',
                       animation: 'gradientMove 15s ease infinite'
                     }}
@@ -619,7 +686,7 @@ function ChatBoxContent() {
         <div className="h-screen flex flex-col bg-white max-w-4xl mx-auto shadow-2xl rounded-lg overflow-hidden">
           {/* Header */}
           <div className="text-white p-6 flex items-center space-x-4 shadow-lg" style={{
-            background: 'linear-gradient(135deg, #0b0c1a, #162534, #1d1238, #5c3f2f, #051321ff, #040620ff, #8c5c3f)',
+            background: 'linear-gradient(135deg, #1a1a2e, #16213e, #0f3460, #533483, #e94560)',
             backgroundSize: '400% 400%',
             animation: 'gradientMove 15s ease infinite'
           }}>
@@ -638,11 +705,18 @@ function ChatBoxContent() {
               <h1 className="text-xl font-semibold">{chatName}</h1>
               <div className="flex items-center space-x-2">
                 <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                <p className="text-sm text-blue-200">Online</p>
+                <p className="text-sm text-blue-200">
+                  {sessionStartTime ? `Session: ${formatSessionDuration(sessionDuration)}` : 'Online'}
+                </p>
               </div>
             </div>
             <div className="flex space-x-4">
-              <button className="text-white hover:text-blue-200 transition-colors p-3 hover:bg-white/20 rounded-full">
+              <button
+                onClick={handleVoiceButtonClick}
+                className={`transition-colors p-3 rounded-full ${
+                  isRecording ? 'bg-red-500 text-white animate-pulse' : 'text-white hover:text-blue-200 hover:bg-white/20'
+                }`}
+              >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                 </svg>
@@ -735,13 +809,13 @@ function ChatBoxContent() {
                 className="hidden"
               />
               <div className="flex-1">
-                <textarea
+                    <textarea
                   ref={textareaRef}
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   onKeyPress={handleKeyPress}
                   placeholder="Type a message..."
-                  className="w-full p-4 border border-white/20 rounded-full resize-none focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-base bg-white/10 focus:bg-white/20 transition-all duration-200 text-white placeholder-white/60 backdrop-blur-sm"
+                      className="w-full p-4 border border-white/20 rounded-full resize-none focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-base bg-white/10 focus:bg-white/20 transition-all duration-200 text-white placeholder-white/60 backdrop-blur-sm overflow-hidden"
                   rows={1}
                 />
               </div>
@@ -750,7 +824,7 @@ function ChatBoxContent() {
                 disabled={!newMessage.trim()}
                 className="text-white p-4 rounded-full transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:scale-105 disabled:hover:scale-100"
                 style={{
-                  background: 'linear-gradient(135deg, #0b0c1a, #162534, #1d1238, #5c3f2f, #051321ff, #040620ff, #8c5c3f)',
+                  background: 'linear-gradient(135deg, #1a1a2e, #16213e, #0f3460, #533483, #e94560)',
                   backgroundSize: '400% 400%',
                   animation: 'gradientMove 15s ease infinite'
                 }}
@@ -766,10 +840,10 @@ function ChatBoxContent() {
 
       {/* Desktop Layout */}
       <div className="hidden lg:block">
-        <div className="h-screen flex flex-col bg-black/20 backdrop-blur-sm border border-white/10 shadow-2xl max-w-6xl mx-auto rounded-xl overflow-hidden">
+        <div className="h-screen flex flex-col bg-black/20 backdrop-blur-sm border border-white/10 shadow-2xl w-full mx-auto overflow-hidden">
           {/* Header */}
           <div className="text-white p-8 flex items-center space-x-4 shadow-lg" style={{
-            background: 'linear-gradient(135deg, #0b0c1a, #162534, #1d1238, #5c3f2f, #051321ff, #040620ff, #8c5c3f)',
+            background: 'linear-gradient(135deg, #1a1a2e, #16213e, #0f3460, #533483, #e94560)',
             backgroundSize: '400% 400%',
             animation: 'gradientMove 15s ease infinite'
           }}>
@@ -788,11 +862,18 @@ function ChatBoxContent() {
               <h1 className="text-2xl font-semibold">{chatName}</h1>
               <div className="flex items-center space-x-2">
                 <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
-                <p className="text-base text-blue-200">Online</p>
+                <p className="text-base text-blue-200">
+                  {sessionStartTime ? `Session: ${formatSessionDuration(sessionDuration)}` : 'Online'}
+                </p>
               </div>
             </div>
             <div className="flex space-x-6">
-              <button className="text-white hover:text-blue-200 transition-colors p-3 hover:bg-white/20 rounded-full">
+              <button
+                onClick={handleVoiceButtonClick}
+                className={`transition-colors p-3 rounded-full ${
+                  isRecording ? 'bg-red-500 text-white animate-pulse' : 'text-white hover:text-blue-200 hover:bg-white/20'
+                }`}
+              >
                 <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                 </svg>
@@ -885,13 +966,13 @@ function ChatBoxContent() {
                 className="hidden"
               />
               <div className="flex-1">
-                <textarea
+                    <textarea
                   ref={textareaRef}
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   onKeyPress={handleKeyPress}
                   placeholder="Type a message..."
-                  className="w-full p-4 border border-white/20 rounded-full resize-none focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-base bg-white/10 focus:bg-white/20 transition-all duration-200 text-white placeholder-white/60 backdrop-blur-sm"
+                      className="w-full p-4 border border-white/20 rounded-full resize-none focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-base bg-white/10 focus:bg-white/20 transition-all duration-200 text-white placeholder-white/60 backdrop-blur-sm overflow-hidden"
                   rows={1}
                 />
               </div>
@@ -900,7 +981,7 @@ function ChatBoxContent() {
                 disabled={!newMessage.trim()}
                 className="text-white p-4 rounded-full transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:scale-105 disabled:hover:scale-100"
                 style={{
-                  background: 'linear-gradient(135deg, #0b0c1a, #162534, #1d1238, #5c3f2f, #051321ff, #040620ff, #8c5c3f)',
+                  background: 'linear-gradient(135deg, #1a1a2e, #16213e, #0f3460, #533483, #e94560)',
                   backgroundSize: '400% 400%',
                   animation: 'gradientMove 15s ease infinite'
                 }}
@@ -921,7 +1002,7 @@ export default function ChatBox() {
   return (
     <Suspense fallback={
       <div className="min-h-screen relative overflow-hidden" style={{
-        background: 'linear-gradient(135deg, #0b0c1a, #162534, #1d1238, #5c3f2f, #051321ff, #040620ff, #8c5c3f)',
+        background: 'linear-gradient(135deg, #1a1a2e, #16213e, #0f3460, #533483, #e94560)',
         backgroundSize: '400% 400%',
         animation: 'gradientMove 15s ease infinite'
       }}>

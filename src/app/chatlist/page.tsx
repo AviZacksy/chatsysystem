@@ -104,17 +104,8 @@ export default function ChatList() {
   if (!isClient) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{
-        background: 'linear-gradient(135deg, #0b0c1a, #162534, #1d1238, #5c3f2f, #051321ff, #040620ff, #8c5c3f)',
-        backgroundSize: '400% 400%',
-        animation: 'gradientMove 15s ease infinite'
+        background: '#fff2cf'
       }}>
-        <style jsx>{`
-          @keyframes gradientMove {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-          }
-        `}</style>
         <div className="text-white text-xl">Loading...</div>
       </div>
     );
@@ -122,17 +113,8 @@ export default function ChatList() {
 
   return (
     <div className="min-h-screen" style={{
-      background: 'linear-gradient(135deg, #0b0c1a, #162534, #1d1238, #5c3f2f, #051321ff, #040620ff, #8c5c3f)',
-      backgroundSize: '400% 400%',
-      animation: 'gradientMove 15s ease infinite'
+      background: '#fff2cf'
     }}>
-      <style jsx>{`
-        @keyframes gradientMove {
-          0% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
-          100% { background-position: 0% 50%; }
-        }
-      `}</style>
 
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
@@ -205,7 +187,7 @@ export default function ChatList() {
                 onClick={handleNewChat}
                 className="w-full text-white py-2.5 rounded-lg font-medium transition-all duration-200 text-sm shadow-lg hover:shadow-xl transform hover:scale-105" 
                 style={{
-                  background: 'linear-gradient(135deg, #0b0c1a, #162534, #1d1238, #5c3f2f, #051321ff, #040620ff, #8c5c3f)',
+                  background: 'linear-gradient(135deg, #1a1a2e, #16213e, #0f3460, #533483, #e94560)',
                   backgroundSize: '400% 400%',
                   animation: 'gradientMove 15s ease infinite'
                 }}
