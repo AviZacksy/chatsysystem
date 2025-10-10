@@ -28,6 +28,13 @@ function AstrologerDashboardContent() {
       const paramAstrologerId = searchParams?.get('astrologerId');
       const paramName = searchParams?.get('name');
       
+      console.log('Raw URL params:', {
+        paramUniqueId,
+        paramAstrologerId,
+        paramName,
+        allParams: searchParams?.toString()
+      });
+      
       let currentSession = getSession();
       console.log('Astrologer page - checking session:', currentSession);
       console.log('URL params:', { paramUniqueId, paramAstrologerId, paramName });
@@ -40,7 +47,7 @@ function AstrologerDashboardContent() {
             role: 'astrologer',
             astrologerId: paramAstrologerId,
             name: paramName || 'Astrologer',
-            apiBaseUrl: process.env.NEXT_PUBLIC_PHP_API_BASE_URL || 'https://astrosolution-talktoastrologer.com'
+            apiBaseUrl: 'https://astrosolution-talktoastrologer.com'
           };
           setSession(tempSession);
           currentSession = tempSession;
@@ -50,8 +57,17 @@ function AstrologerDashboardContent() {
         }
       }
       
+      console.log('Final session check:', currentSession);
+      console.log('Session role:', currentSession?.role);
+      console.log('Is astrologer?', currentSession?.role === 'astrologer');
+      
       if (!currentSession || currentSession.role !== 'astrologer') {
         console.log('No valid astrologer session found, redirecting to test-chat');
+        console.log('Session details:', { 
+          hasSession: !!currentSession, 
+          role: currentSession?.role,
+          expectedRole: 'astrologer'
+        });
         alert('Please login as an astrologer to access this page.');
         router.push('/test-chat');
         return;
