@@ -1,41 +1,81 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useRef, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ChatSession, getUserChatSessions, listenChatRequests, ChatRequest, acceptChatRequest, rejectChatRequest } from '../../lib/firestore';
-import { getSession, AuthSessionData } from '../../lib/auth';
+import { getSession, setSession, AuthSessionData } from '../../lib/auth';
 
 // ChatRequest imported from lib
 
-export default function AstrologerDashboard() {
+function AstrologerDashboardContent() {
   const [isClient, setIsClient] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [chatRequests, setChatRequests] = useState<ChatRequest[]>([]);
   const [activeChats, setActiveChats] = useState<ChatSession[]>([]);
   const [loading, setLoading] = useState(true);
-  const [session, setSession] = useState<AuthSessionData | null>(null);
+  const [session, setSessionState] = useState<AuthSessionData | null>(null);
   const [popupRequest, setPopupRequest] = useState<ChatRequest | null>(null);
   const seenRequestIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    const currentSession = getSession();
-    if (!currentSession || currentSession.role !== 'astrologer') {
-      alert('Please login as an astrologer to access this page.');
-      router.push('/test-chat');
-      return;
-    }
-    setSession(currentSession);
     setIsClient(true);
     
-    let cleanup: (() => void) | undefined;
-    loadAstrologerData(currentSession).then((cleanupFn) => {
-      cleanup = cleanupFn;
-    });
+    // Add a small delay to ensure localStorage is available
+    const checkSession = () => {
+      // Check URL parameters first
+      const paramUniqueId = searchParams?.get('uniqueId');
+      const paramAstrologerId = searchParams?.get('astrologerId');
+      const paramName = searchParams?.get('name');
+      
+      let currentSession = getSession();
+      console.log('Astrologer page - checking session:', currentSession);
+      console.log('URL params:', { paramUniqueId, paramAstrologerId, paramName });
+      
+      // If no session but URL has astrologer parameters, create a temporary session
+      if (!currentSession && paramUniqueId && paramAstrologerId) {
+        try {
+          const tempSession: AuthSessionData = {
+            uniqueId: paramUniqueId,
+            role: 'astrologer',
+            astrologerId: paramAstrologerId,
+            name: paramName || 'Astrologer',
+            apiBaseUrl: process.env.NEXT_PUBLIC_PHP_API_BASE_URL || 'https://astrosolution-talktoastrologer.com'
+          };
+          setSession(tempSession);
+          currentSession = tempSession;
+          console.log('Created temporary astrologer session from URL params:', tempSession);
+        } catch (error) {
+          console.error('Error creating session from URL params:', error);
+        }
+      }
+      
+      if (!currentSession || currentSession.role !== 'astrologer') {
+        console.log('No valid astrologer session found, redirecting to test-chat');
+        alert('Please login as an astrologer to access this page.');
+        router.push('/test-chat');
+        return;
+      }
+      
+      setSessionState(currentSession);
+      
+      let cleanup: (() => void) | undefined;
+      loadAstrologerData(currentSession).then((cleanupFn) => {
+        cleanup = cleanupFn;
+      });
+      
+      return () => {
+        if (cleanup) cleanup();
+      };
+    };
+    
+    // Small delay to ensure localStorage is ready
+    const timeoutId = setTimeout(checkSession, 100);
     
     return () => {
-      if (cleanup) cleanup();
+      clearTimeout(timeoutId);
     };
-  }, [router]);
+  }, [router, searchParams]);
 
   const loadAstrologerData = async (currentSession: AuthSessionData) => {
     try {
@@ -299,5 +339,28 @@ export default function AstrologerDashboard() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function AstrologerDashboard() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center" style={{
+        background: 'linear-gradient(135deg, #1a1a2e, #16213e, #0f3460, #533483, #e94560)',
+        backgroundSize: '400% 400%',
+        animation: 'gradientMove 15s ease infinite'
+      }}>
+        <style jsx>{`
+          @keyframes gradientMove {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+        `}</style>
+        <div className="text-white text-xl">Loading...</div>
+      </div>
+    }>
+      <AstrologerDashboardContent />
+    </Suspense>
   );
 }

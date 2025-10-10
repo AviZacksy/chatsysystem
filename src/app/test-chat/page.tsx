@@ -21,6 +21,15 @@ export default function TestChatPage() {
     return `${baseUrl.replace(/\/$/, '')}/chatbox?${params}`;
   }, [baseUrl, uniqueId, userId, astrologerId, astrologerName]);
 
+  const astrologerUrl = useMemo(() => {
+    const params = new URLSearchParams({
+      uniqueId,
+      astrologerId,
+      name: astrologerName
+    }).toString();
+    return `${baseUrl.replace(/\/$/, '')}/astrologer?${params}`;
+  }, [baseUrl, uniqueId, astrologerId, astrologerName]);
+
   useEffect(() => {
     if (!baseUrl && typeof window !== 'undefined') {
       setBaseUrl(window.location.origin);
@@ -44,7 +53,16 @@ export default function TestChatPage() {
   const copyUrl = async () => {
     try {
       await navigator.clipboard.writeText(fullUrl);
-      alert('URL copied!');
+      alert('Chat URL copied!');
+    } catch {
+      // no-op
+    }
+  };
+
+  const copyAstrologerUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(astrologerUrl);
+      alert('Astrologer URL copied!');
     } catch {
       // no-op
     }
@@ -73,8 +91,12 @@ export default function TestChatPage() {
         apiBaseUrl: 'https://astrosolution-talktoastrologer.com'
       };
       localStorage.setItem('chat_auth_session_v1', JSON.stringify(session));
+      console.log('Astrologer session set:', session);
       alert('Astrologer session set! Now you can access /astrologer page.');
-    } catch {}
+    } catch (error) {
+      console.error('Error setting astrologer session:', error);
+      alert('Error setting astrologer session');
+    }
   };
 
   const fillExample = () => {
@@ -173,10 +195,25 @@ export default function TestChatPage() {
               Set Astrologer Session
             </button>
             <button
+              onClick={() => {
+                setAstrologerSession();
+                setTimeout(() => router.push('/astrologer'), 500);
+              }}
+              className="px-3 py-2 rounded bg-purple-500 hover:bg-purple-600"
+            >
+              Set & Go to Dashboard
+            </button>
+            <button
               onClick={copyUrl}
               className="px-3 py-2 rounded bg-white/10 border border-white/20 hover:bg-white/20"
             >
-              Copy Full URL
+              Copy Chat URL
+            </button>
+            <button
+              onClick={copyAstrologerUrl}
+              className="px-3 py-2 rounded bg-purple-400 hover:bg-purple-500"
+            >
+              Copy Astrologer URL
             </button>
             <button
               onClick={openChatNewTab}
@@ -195,8 +232,13 @@ export default function TestChatPage() {
           </div>
 
           <div className="mt-4 p-3 rounded bg-black/30 border border-white/10">
-            <div className="text-xs text-white/70 mb-1">Generated URL</div>
+            <div className="text-xs text-white/70 mb-1">Generated Chat URL</div>
             <code className="text-sm break-all">{fullUrl}</code>
+          </div>
+
+          <div className="mt-4 p-3 rounded bg-purple-900/30 border border-purple-500/20">
+            <div className="text-xs text-purple-200 mb-1">Generated Astrologer URL</div>
+            <code className="text-sm break-all text-purple-100">{astrologerUrl}</code>
           </div>
 
           <div className="mt-4 text-center space-y-2">
