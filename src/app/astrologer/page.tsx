@@ -373,13 +373,14 @@ function AstrologerDashboardContent() {
 }
 
 export default function AstrologerDashboard() {
-  console.log('AstrologerDashboard component rendered');
+  console.log('AstrologerDashboard component rendered - VERSION 2');
   
   // Simple test component first
   return (
-    <div style={{ padding: '20px', background: 'red', color: 'white' }}>
-      <h1>ASTROLOGER PAGE LOADED!</h1>
-      <p>If you can see this, the page is working</p>
+    <div style={{ padding: '20px', background: 'green', color: 'white', fontSize: '24px' }}>
+      <h1>🚀 ASTROLOGER PAGE LOADED - VERSION 2! 🚀</h1>
+      <p>✅ If you can see this GREEN page, the deployment is working!</p>
+      <p>⏰ Current time: {new Date().toLocaleString()}</p>
       <AstrologerDashboardContent />
     </div>
   );
