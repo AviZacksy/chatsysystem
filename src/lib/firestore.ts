@@ -12,6 +12,7 @@ import {
   Timestamp,
   FieldValue
 } from 'firebase/firestore';
+import { getDoc } from 'firebase/firestore';
 import { db } from './firebase';
 
 // Chat message interface
@@ -37,6 +38,17 @@ export interface ChatSession {
   lastMessageTime?: Date | Timestamp;
   status: 'active' | 'closed';
   uniqueId: string; // This will be the unique identifier for the chat
+}
+
+// Chat request interface
+export interface ChatRequest {
+  id?: string;
+  uniqueId: string;
+  userId: string;
+  astrologerId: string; // astrologer sno
+  userName?: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  createdAt: Date | Timestamp | FieldValue;
 }
 
 // Create a new chat session with external unique ID from PHP
@@ -178,4 +190,83 @@ export const uploadFile = async (file: File, chatId: string): Promise<string> =>
   const downloadURL = await getDownloadURL(storageRef);
   
   return downloadURL;
+};
+
+// ========== Chat Requests (request-based workflow) ==========
+
+// Create a new chat request (if one pending for same uniqueId doesn't exist)
+export const createChatRequest = async (uniqueId: string, userId: string, astrologerId: string, userName?: string): Promise<string> => {
+  const chatRequestsRef = collection(db, 'chatRequests');
+  // check existing pending
+  const existing = await getDocs(query(chatRequestsRef, where('uniqueId', '==', uniqueId), where('status', '==', 'pending')));
+  if (!existing.empty) {
+    return existing.docs[0].id;
+  }
+  const docRef = await addDoc(chatRequestsRef, {
+    uniqueId,
+    userId,
+    astrologerId,
+    userName,
+    status: 'pending',
+    createdAt: serverTimestamp()
+  } as ChatRequest);
+  return docRef.id;
+};
+
+// Listen to requests for an astrologer
+export const listenChatRequests = (astrologerId: string, callback: (requests: ChatRequest[]) => void): (() => void) => {
+  const chatRequestsRef = collection(db, 'chatRequests');
+  const q = query(chatRequestsRef, where('astrologerId', '==', astrologerId));
+  return onSnapshot(q, (snap) => {
+    const reqs: ChatRequest[] = [];
+    snap.forEach((d) => reqs.push({ id: d.id, ...(d.data() as Omit<ChatRequest, 'id'>) }));
+    // Sort by createdAt on client side to avoid index requirement
+    reqs.sort((a, b) => {
+      const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : 
+                   (a.createdAt as Timestamp)?.toDate ? (a.createdAt as Timestamp).toDate().getTime() : 0;
+      const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : 
+                   (b.createdAt as Timestamp)?.toDate ? (b.createdAt as Timestamp).toDate().getTime() : 0;
+      return bTime - aTime; // Descending order
+    });
+    callback(reqs);
+  });
+};
+
+// Accept a request → create/get session and set status accepted. Also send astrologer welcome message.
+export const acceptChatRequest = async (requestId: string, welcomeMessage: string): Promise<ChatSession> => {
+  const reqRef = doc(db, 'chatRequests', requestId);
+  const reqSnap = await getDoc(reqRef);
+  if (!reqSnap.exists()) throw new Error('Chat request not found');
+  const data = reqSnap.data() as ChatRequest;
+
+  // create or get session using base uniqueId (not requestId)
+  const session = await getOrCreateChatSession(data.uniqueId, data.userId, data.astrologerId);
+
+  // mark accepted
+  await updateDoc(reqRef, { status: 'accepted' });
+
+  // send welcome as astrologer
+  await sendMessage({
+    chatId: session.id,
+    senderId: data.astrologerId,
+    senderType: 'astrologer',
+    message: welcomeMessage,
+    messageType: 'text'
+  });
+
+  return session;
+};
+
+export const rejectChatRequest = async (requestId: string): Promise<void> => {
+  const reqRef = doc(db, 'chatRequests', requestId);
+  await updateDoc(reqRef, { status: 'rejected' });
+};
+
+// Listen a single chat request document by id
+export const listenChatRequestById = (requestId: string, callback: (request: ChatRequest | null) => void): (() => void) => {
+  const reqRef = doc(db, 'chatRequests', requestId);
+  return onSnapshot(reqRef, (snap) => {
+    if (!snap.exists()) return callback(null);
+    callback({ id: snap.id, ...(snap.data() as Omit<ChatRequest, 'id'>) });
+  });
 };

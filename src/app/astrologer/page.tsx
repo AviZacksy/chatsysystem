@@ -1,19 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChatSession, getUserChatSessions, getOrCreateChatSession } from '../../lib/firestore';
-import { getSession, AuthSessionData, setSession } from '../../lib/auth';
+import { ChatSession, getUserChatSessions, listenChatRequests, ChatRequest, acceptChatRequest, rejectChatRequest } from '../../lib/firestore';
+import { getSession, AuthSessionData } from '../../lib/auth';
 
-interface ChatRequest {
-  id: string;
-  userId: string;
-  userName: string;
-  message: string;
-  timestamp: string;
-  status: 'pending' | 'accepted' | 'rejected';
-  uniqueId: string;
-}
+// ChatRequest imported from lib
 
 export default function AstrologerDashboard() {
   const [isClient, setIsClient] = useState(false);
@@ -22,6 +14,8 @@ export default function AstrologerDashboard() {
   const [activeChats, setActiveChats] = useState<ChatSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<AuthSessionData | null>(null);
+  const [popupRequest, setPopupRequest] = useState<ChatRequest | null>(null);
+  const seenRequestIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const currentSession = getSession();
@@ -32,7 +26,15 @@ export default function AstrologerDashboard() {
     }
     setSession(currentSession);
     setIsClient(true);
-    loadAstrologerData(currentSession);
+    
+    let cleanup: (() => void) | undefined;
+    loadAstrologerData(currentSession).then((cleanupFn) => {
+      cleanup = cleanupFn;
+    });
+    
+    return () => {
+      if (cleanup) cleanup();
+    };
   }, [router]);
 
   const loadAstrologerData = async (currentSession: AuthSessionData) => {
@@ -42,31 +44,24 @@ export default function AstrologerDashboard() {
       // Load active chat sessions for this astrologer
       const sessions = await getUserChatSessions(currentSession.astrologerId || '', 'astrologer');
       setActiveChats(sessions);
-
-      // For demo, create some mock chat requests
-      // In real app, these would come from your PHP backend
-      const mockRequests: ChatRequest[] = [
-        {
-          id: 'req_1',
-          userId: 'user_123',
-          userName: 'John Doe',
-          message: 'I need help with my career guidance',
-          timestamp: '2 minutes ago',
-          status: 'pending',
-          uniqueId: 'CHAT_123_55'
-        },
-        {
-          id: 'req_2',
-          userId: 'user_456',
-          userName: 'Jane Smith',
-          message: 'Can you help me understand my love life?',
-          timestamp: '5 minutes ago',
-          status: 'pending',
-          uniqueId: 'CHAT_456_55'
-        }
-      ];
       
-      setChatRequests(mockRequests);
+      // Realtime chat requests for this astrologer sno
+      const astroId = currentSession.astrologerId || '';
+      console.log('Setting up listener for astrologer:', astroId);
+      const unsub = listenChatRequests(astroId, (reqs) => {
+        console.log('Received chat requests:', reqs);
+        setChatRequests(reqs);
+        // Detect new pending request and trigger popup
+        for (const r of reqs) {
+          if (r.status === 'pending' && r.id && !seenRequestIdsRef.current.has(r.id)) {
+            console.log('New pending request detected:', r);
+            seenRequestIdsRef.current.add(r.id);
+            setPopupRequest(r);
+            break;
+          }
+        }
+      });
+      return () => unsub();
     } catch (error) {
       console.error('Error loading astrologer data:', error);
     } finally {
@@ -76,31 +71,29 @@ export default function AstrologerDashboard() {
 
   const handleAcceptRequest = async (request: ChatRequest) => {
     try {
-      // Update request status
-      setChatRequests(prev => 
-        prev.map(req => 
-          req.id === request.id 
-            ? { ...req, status: 'accepted' as const }
-            : req
-        )
-      );
-
-      // Navigate to chat
-      router.push(`/chatbox?uniqueId=${request.uniqueId}&userId=${request.userId}&astrologerId=${session?.astrologerId}&name=${request.userName}`);
+      const welcome = 'Namaste, please share your date of birth, name, and place of birth.';
+      const sessionData = await acceptChatRequest(request.id!, welcome);
+      router.push(`/chatbox?id=${sessionData.id}&name=${request.userName || ('User ' + request.userId.slice(-4))}`);
     } catch (error) {
       console.error('Error accepting request:', error);
       alert('Failed to accept chat request');
     }
   };
 
-  const handleRejectRequest = (requestId: string) => {
-    setChatRequests(prev => 
-      prev.map(req => 
-        req.id === requestId 
-          ? { ...req, status: 'rejected' as const }
-          : req
-      )
-    );
+  const handleRejectRequest = async (requestId: string) => {
+    await rejectChatRequest(requestId);
+  };
+
+  const handlePopupAccept = async () => {
+    if (!popupRequest) return;
+    await handleAcceptRequest(popupRequest);
+    setPopupRequest(null);
+  };
+
+  const handlePopupReject = async () => {
+    if (!popupRequest?.id) return;
+    await handleRejectRequest(popupRequest.id);
+    setPopupRequest(null);
   };
 
   const handleJoinActiveChat = (chatSession: ChatSession) => {
@@ -168,16 +161,42 @@ export default function AstrologerDashboard() {
               <h1 className="text-2xl font-bold">Astrologer Dashboard</h1>
               <p className="text-blue-200">Welcome, {session?.name || 'Astrologer'}</p>
             </div>
-            <button
-              onClick={() => router.push('/test-chat')}
-              className="text-white/60 hover:text-white transition-colors text-sm"
-            >
-              ← Back to Test
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  console.log('Current session:', session);
+                  console.log('Current chat requests:', chatRequests);
+                  console.log('Seen request IDs:', seenRequestIdsRef.current);
+                }}
+                className="text-white/60 hover:text-white transition-colors text-sm px-2 py-1 bg-blue-600 rounded"
+              >
+                Debug
+              </button>
+              <button
+                onClick={() => router.push('/test-chat')}
+                className="text-white/60 hover:text-white transition-colors text-sm"
+              >
+                ← Back to Test
+              </button>
+            </div>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
+          {popupRequest && (
+            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-md border border-white/20 text-white px-4 py-3 rounded-xl shadow-2xl z-50 w-[95%] max-w-xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm">New chat request</div>
+                  <div className="font-semibold">{popupRequest.userName || ('User ' + popupRequest.userId.slice(-4))}</div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={handlePopupReject} className="px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-lg text-sm">Reject</button>
+                  <button onClick={handlePopupAccept} className="px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded-lg text-sm">Accept</button>
+                </div>
+              </div>
+            </div>
+          )}
           {loading ? (
             <div className="space-y-4">
               {[1, 2, 3].map((i) => (
@@ -192,19 +211,18 @@ export default function AstrologerDashboard() {
               {/* Chat Requests */}
               <div className="space-y-4">
                 <h2 className="text-xl font-semibold text-white mb-4">New Chat Requests</h2>
-                {chatRequests.length === 0 ? (
+                {chatRequests.filter(r => r.status === 'pending').length === 0 ? (
                   <div className="bg-white/10 p-6 rounded-lg text-center text-white/60">
                     <div className="text-4xl mb-2">📩</div>
                     <p>No new chat requests</p>
                   </div>
                 ) : (
-                  chatRequests.map((request) => (
+                  chatRequests.filter(r => r.status === 'pending').map((request) => (
                     <div key={request.id} className="bg-white/10 p-4 rounded-lg border border-white/20">
                       <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-semibold text-white">{request.userName}</h3>
-                        <span className="text-xs text-white/60">{request.timestamp}</span>
+                        <h3 className="font-semibold text-white">{request.userName || ('User ' + request.userId.slice(-4))}</h3>
+                        <span className="text-xs text-white/60">{request.id?.slice(-6)}</span>
                       </div>
-                      <p className="text-white/80 text-sm mb-3">{request.message}</p>
                       <div className="flex space-x-2">
                         {request.status === 'pending' && (
                           <>
@@ -215,7 +233,7 @@ export default function AstrologerDashboard() {
                               Accept
                             </button>
                             <button
-                              onClick={() => handleRejectRequest(request.id)}
+                              onClick={() => handleRejectRequest(request.id as string)}
                               className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm transition-colors"
                             >
                               Reject

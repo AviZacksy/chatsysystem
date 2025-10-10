@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ChatMessage, sendMessage, getMessages, uploadFile, getOrCreateChatSession } from '../../lib/firestore';
+import { ChatMessage, sendMessage, getMessages, uploadFile, getOrCreateChatSession, createChatRequest, listenChatRequestById } from '../../lib/firestore';
 import { getSession, setSession } from '../../lib/auth';
 
 interface Message {
@@ -23,7 +23,7 @@ function ChatBoxContent() {
   const [chatName, setChatName] = useState('John Doe');
   const [chatId, setChatId] = useState<string>('');
   const [messages, setMessages] = useState<Message[]>([]);
-  const [firebaseMessages, setFirebaseMessages] = useState<ChatMessage[]>([]);
+  const [, setFirebaseMessages] = useState<ChatMessage[]>([]);
 
   const [newMessage, setNewMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -40,6 +40,8 @@ function ChatBoxContent() {
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
   const [sessionDuration, setSessionDuration] = useState(0);
+  const [, setPendingRequestId] = useState<string | null>(null);
+  const [requestStatus, setRequestStatus] = useState<'pending' | 'accepted' | 'rejected' | null>(null);
 
   const sessionRef = useRef(getSession());
 
@@ -358,18 +360,31 @@ function ChatBoxContent() {
       const effectiveAstroId = paramAstrologerId || s?.astrologerId || '';
       if (!effectiveUserId || !effectiveAstroId) return;
       try {
+        // If request-based: create a pending chat request and wait for acceptance
+        const reqId = await createChatRequest(paramUniqueId, effectiveUserId, effectiveAstroId, paramName || undefined);
+        setPendingRequestId(reqId);
+        setRequestStatus('pending');
+        const unsubReq = listenChatRequestById(reqId, async (req) => {
+          console.log('Chat request status update:', req);
+          if (!req) return;
+          if (req.status === 'accepted') {
+            console.log('Chat request accepted, creating session');
+            setRequestStatus('accepted');
+            // Now create/get session and open chat
+            const session = await getOrCreateChatSession(paramUniqueId, effectiveUserId, effectiveAstroId);
+            setChatId(session.id);
+            setSessionStartTime(new Date());
+            setSessionDuration(0);
+            unsubReq();
+          } else if (req.status === 'rejected') {
+            setRequestStatus('rejected');
+            unsubReq();
+          }
+        });
+
         // Clear old messages first (fresh start each time)
         setMessages([]);
         setFirebaseMessages([]);
-        
-        // Create session with timestamp to ensure fresh session each time
-        const timestampedUniqueId = `${paramUniqueId}_${Date.now()}`;
-        const session = await getOrCreateChatSession(timestampedUniqueId, effectiveUserId, effectiveAstroId);
-        setChatId(session.id);
-        
-        // Start session timer
-        setSessionStartTime(new Date());
-        setSessionDuration(0);
       } catch (e) {
         console.error('Failed to resolve chat by uniqueId:', e);
         alert('Unable to open chat. Please try again.');
@@ -451,9 +466,9 @@ function ChatBoxContent() {
     );
   }
 
-  return (
+      return (
         <div className="min-h-screen relative overflow-hidden" style={{
-          background: '#fff2cf'
+              background: '#fff2cf'
         }}>
       
       {/* Mobile Layout */}
@@ -501,8 +516,14 @@ function ChatBoxContent() {
             </div>
           </div>
 
-          {/* Messages */}
+              {/* Messages / Pending State */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-black/10 to-black/20">
+                {requestStatus === 'pending' && (
+                  <div className="text-center text-white/80 py-3">Waiting for astrologer to accept your chat…</div>
+                )}
+                {requestStatus === 'rejected' && (
+                  <div className="text-center text-red-300 py-3">Astrologer is unavailable. Please try another astrologer.</div>
+                )}
             {messages.map((message) => (
               <div
                 key={message.id}
@@ -883,6 +904,12 @@ function ChatBoxContent() {
 
           {/* Messages */}
           <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-8 py-6 space-y-6 bg-gradient-to-b from-black/10 to-black/20">
+            {requestStatus === 'pending' && (
+              <div className="text-center text-white/80 py-3">Waiting for astrologer to accept your chat…</div>
+            )}
+            {requestStatus === 'rejected' && (
+              <div className="text-center text-red-300 py-3">Astrologer is unavailable. Please try another astrologer.</div>
+            )}
             {messages.map((message) => (
               <div
                 key={message.id}
@@ -899,6 +926,33 @@ function ChatBoxContent() {
                       ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-br-md' 
                       : 'bg-white/10 text-white rounded-bl-md border border-white/10 backdrop-blur-sm'
                   }`}>
+                    {message.type === 'image' && message.mediaUrl && (
+                      <div className="mb-2">
+                        <img 
+                          src={message.mediaUrl} 
+                          alt="Shared image" 
+                          className="max-w-[300px] max-h-[300px] rounded-lg object-cover"
+                        />
+                      </div>
+                    )}
+                    {message.type === 'video' && message.mediaUrl && (
+                      <div className="mb-2">
+                        <video 
+                          src={message.mediaUrl} 
+                          controls 
+                          className="max-w-[300px] max-h-[300px] rounded-lg"
+                        />
+                      </div>
+                    )}
+                    {message.type === 'audio' && message.mediaUrl && (
+                      <div className="mb-2">
+                        <audio 
+                          src={message.mediaUrl} 
+                          controls 
+                          className="w-full max-w-[300px]"
+                        />
+                      </div>
+                    )}
                     <p className="text-base leading-relaxed">{message.text}</p>
                     <div className="flex items-center justify-between mt-2">
                       <p className={`text-xs ${
@@ -966,19 +1020,44 @@ function ChatBoxContent() {
                 className="hidden"
               />
               <div className="flex-1">
-                    <textarea
+                {previewUrl && selectedFile && (
+                  <div className="mb-2 p-2 bg-white/10 rounded-lg">
+                    {selectedFile.type.startsWith('image/') ? (
+                      <img 
+                        src={previewUrl} 
+                        alt="Preview" 
+                        className="max-w-[150px] max-h-[150px] rounded object-cover"
+                      />
+                    ) : (
+                      <video 
+                        src={previewUrl} 
+                        className="max-w-[150px] max-h-[150px] rounded"
+                      />
+                    )}
+                    <button 
+                      onClick={() => {
+                        setSelectedFile(null);
+                        setPreviewUrl(null);
+                      }}
+                      className="ml-2 text-white/60 hover:text-white"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+                <textarea
                   ref={textareaRef}
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   onKeyPress={handleKeyPress}
                   placeholder="Type a message..."
-                      className="w-full p-4 border border-white/20 rounded-full resize-none focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-base bg-white/10 focus:bg-white/20 transition-all duration-200 text-white placeholder-white/60 backdrop-blur-sm overflow-hidden"
+                  className="w-full p-4 border border-white/20 rounded-full resize-none focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-base bg-white/10 focus:bg-white/20 transition-all duration-200 text-white placeholder-white/60 backdrop-blur-sm overflow-hidden"
                   rows={1}
                 />
               </div>
               <button
                 onClick={handleSendMessage}
-                disabled={!newMessage.trim()}
+                disabled={!newMessage.trim() && !selectedFile}
                 className="text-white p-4 rounded-full transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:scale-105 disabled:hover:scale-100"
                 style={{
                   background: 'linear-gradient(135deg, #1a1a2e, #16213e, #0f3460, #533483, #e94560)',

@@ -63,6 +63,20 @@ export default function TestChatPage() {
     } catch {}
   };
 
+  const setAstrologerSession = () => {
+    try {
+      const session = {
+        uniqueId,
+        role: 'astrologer',
+        astrologerId,
+        name: astrologerName,
+        apiBaseUrl: 'https://astrosolution-talktoastrologer.com'
+      };
+      localStorage.setItem('chat_auth_session_v1', JSON.stringify(session));
+      alert('Astrologer session set! Now you can access /astrologer page.');
+    } catch {}
+  };
+
   const fillExample = () => {
     setUniqueId('CHAT_123_55');
     setUserId('123');
@@ -150,7 +164,13 @@ export default function TestChatPage() {
               onClick={quickTestSession}
               className="px-3 py-2 rounded bg-white/10 border border-white/20 hover:bg-white/20"
             >
-              Quick Test Session
+              Set User Session
+            </button>
+            <button
+              onClick={setAstrologerSession}
+              className="px-3 py-2 rounded bg-purple-600 hover:bg-purple-700"
+            >
+              Set Astrologer Session
             </button>
             <button
               onClick={copyUrl}

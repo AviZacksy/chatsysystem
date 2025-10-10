@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChatSession, getUserChatSessions, getOrCreateChatSession } from '../../lib/firestore';
+import { getUserChatSessions, getOrCreateChatSession } from '../../lib/firestore';
 import { getSession, AuthSessionData } from '../../lib/auth';
 
 interface Chat {
