@@ -373,15 +373,26 @@ function AstrologerDashboardContent() {
 }
 
 export default function AstrologerDashboard() {
-  console.log('AstrologerDashboard component rendered - VERSION 2');
+  console.log('AstrologerDashboard component rendered - VERSION 3');
   
-  // Simple test component first
+  // Completely bypass everything for testing
   return (
-    <div style={{ padding: '20px', background: 'green', color: 'white', fontSize: '24px' }}>
-      <h1>🚀 ASTROLOGER PAGE LOADED - VERSION 2! 🚀</h1>
-      <p>✅ If you can see this GREEN page, the deployment is working!</p>
-      <p>⏰ Current time: {new Date().toLocaleString()}</p>
-      <AstrologerDashboardContent />
+    <div style={{ 
+      padding: '50px', 
+      background: 'linear-gradient(45deg, #ff6b6b, #4ecdc4)', 
+      color: 'white', 
+      fontSize: '28px',
+      minHeight: '100vh',
+      textAlign: 'center'
+    }}>
+      <h1>🎉 ASTROLOGER PAGE WORKING! 🎉</h1>
+      <p>✅ VERSION 3 - DEPLOYMENT SUCCESSFUL!</p>
+      <p>⏰ Time: {new Date().toLocaleString()}</p>
+      <p>🔗 URL: {typeof window !== 'undefined' ? window.location.href : 'Loading...'}</p>
+      <div style={{ marginTop: '50px', fontSize: '18px' }}>
+        <p>🚀 If you can see this page, the astrologer route is working!</p>
+        <p>🔧 Now we can fix the authentication issue.</p>
+      </div>
     </div>
   );
 }
