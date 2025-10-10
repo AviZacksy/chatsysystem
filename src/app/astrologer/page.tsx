@@ -8,6 +8,7 @@ import { getSession, setSession, AuthSessionData } from '../../lib/auth';
 // ChatRequest imported from lib
 
 function AstrologerDashboardContent() {
+  console.log('AstrologerDashboardContent component started');
   const [isClient, setIsClient] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -19,10 +20,12 @@ function AstrologerDashboardContent() {
   const seenRequestIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
+    console.log('Astrologer page useEffect triggered');
     setIsClient(true);
     
     // Add a small delay to ensure localStorage is available
     const checkSession = () => {
+      console.log('checkSession function called');
       // Check URL parameters first
       const paramUniqueId = searchParams?.get('uniqueId');
       const paramAstrologerId = searchParams?.get('astrologerId');
@@ -359,24 +362,6 @@ function AstrologerDashboardContent() {
 }
 
 export default function AstrologerDashboard() {
-  return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center" style={{
-        background: 'linear-gradient(135deg, #1a1a2e, #16213e, #0f3460, #533483, #e94560)',
-        backgroundSize: '400% 400%',
-        animation: 'gradientMove 15s ease infinite'
-      }}>
-        <style jsx>{`
-          @keyframes gradientMove {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-          }
-        `}</style>
-        <div className="text-white text-xl">Loading...</div>
-      </div>
-    }>
-      <AstrologerDashboardContent />
-    </Suspense>
-  );
+  console.log('AstrologerDashboard component rendered');
+  return <AstrologerDashboardContent />;
 }
