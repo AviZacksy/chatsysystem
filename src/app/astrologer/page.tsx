@@ -373,26 +373,32 @@ function AstrologerDashboardContent() {
 }
 
 export default function AstrologerDashboard() {
-  console.log('AstrologerDashboard component rendered - VERSION 3');
+  console.log('AstrologerDashboard component rendered - VERSION 4');
   
-  // Completely bypass everything for testing
+  // Test if page loads, then show proper content
   return (
     <div style={{ 
       padding: '50px', 
-      background: 'linear-gradient(45deg, #ff6b6b, #4ecdc4)', 
+      background: 'linear-gradient(45deg, #9b59b6, #3498db)', 
       color: 'white', 
-      fontSize: '28px',
+      fontSize: '24px',
       minHeight: '100vh',
       textAlign: 'center'
     }}>
       <h1>🎉 ASTROLOGER PAGE WORKING! 🎉</h1>
-      <p>✅ VERSION 3 - DEPLOYMENT SUCCESSFUL!</p>
+      <p>✅ VERSION 4 - DEPLOYMENT SUCCESSFUL!</p>
       <p>⏰ Time: {new Date().toLocaleString()}</p>
       <p>🔗 URL: {typeof window !== 'undefined' ? window.location.href : 'Loading...'}</p>
-      <div style={{ marginTop: '50px', fontSize: '18px' }}>
-        <p>🚀 If you can see this page, the astrologer route is working!</p>
-        <p>🔧 Now we can fix the authentication issue.</p>
+      
+      <div style={{ marginTop: '50px', fontSize: '18px', background: 'rgba(0,0,0,0.3)', padding: '20px', borderRadius: '10px' }}>
+        <h2>🔧 Testing Steps:</h2>
+        <p>1. Go to: <a href="/test-chat" style={{color: 'yellow'}}>/test-chat</a></p>
+        <p>2. Click "Set Astrologer Session" button</p>
+        <p>3. Click "🔮 Astrologer Dashboard" button</p>
+        <p>4. Should work without alert!</p>
       </div>
+      
+      <AstrologerDashboardContent />
     </div>
   );
 }
