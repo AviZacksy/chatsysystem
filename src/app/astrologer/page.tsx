@@ -324,7 +324,7 @@ function AstrologerDashboardContent() {
                   <div className="bg-white/10 backdrop-blur-sm p-6 sm:p-8 rounded-xl text-center border border-white/20">
                     <div className="text-4xl sm:text-5xl mb-3">📩</div>
                     <p className="text-white/70 text-sm sm:text-base">No new chat requests</p>
-                    <p className="text-white/50 text-xs mt-1">You'll be notified when new requests arrive</p>
+                    <p className="text-white/50 text-xs mt-1">You&apos;ll be notified when new requests arrive</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
