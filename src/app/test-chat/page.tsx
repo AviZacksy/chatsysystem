@@ -243,7 +243,7 @@ export default function TestChatPage() {
 
           <div className="mt-4 text-center space-y-2">
             <button
-              onClick={() => router.push('/astrologer')}
+              onClick={() => router.push(astrologerUrl)}
               className="text-white/60 hover:text-white transition-colors text-sm block mx-auto"
             >
               🔮 Astrologer Dashboard
