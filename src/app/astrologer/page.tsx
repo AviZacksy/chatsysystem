@@ -72,20 +72,8 @@ function AstrologerDashboardContent() {
       console.log('Session role:', currentSession?.role);
       console.log('Is astrologer?', currentSession?.role === 'astrologer');
       
-      // TEMPORARILY DISABLE AUTH CHECK FOR DEBUGGING
-      if (false && (!currentSession || currentSession?.role !== 'astrologer')) {
-        console.log('No valid astrologer session found, redirecting to test-chat');
-        console.log('Session details:', { 
-          hasSession: !!currentSession, 
-          role: currentSession?.role,
-          expectedRole: 'astrologer'
-        });
-        alert('Please login as an astrologer to access this page.');
-        router.push('/test-chat');
-        return;
-      }
-      
-      console.log('AUTH CHECK BYPASSED - CONTINUING TO LOAD PAGE');
+      // AUTH CHECK COMPLETELY DISABLED FOR REAL SITE INTEGRATION
+      console.log('AUTH CHECK DISABLED - LOADING PAGE DIRECTLY');
       
       setSessionState(currentSession);
       
