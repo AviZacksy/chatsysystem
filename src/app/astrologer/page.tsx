@@ -42,30 +42,22 @@ function AstrologerDashboardContent() {
       console.log('Astrologer page - checking session:', currentSession);
       console.log('URL params:', { paramUniqueId, paramAstrologerId, paramName });
       
-      // If no session but URL has astrologer parameters, create a temporary session
-      if (!currentSession && paramUniqueId && paramAstrologerId) {
+      // Create session from URL parameters or use defaults for direct access
+      if (!currentSession) {
         try {
           const tempSession: AuthSessionData = {
-            uniqueId: paramUniqueId,
+            uniqueId: paramUniqueId || 'direct_astrologer_' + Date.now(),
             role: 'astrologer',
-            astrologerId: paramAstrologerId,
+            astrologerId: paramAstrologerId || 'astro_' + Math.random().toString(36).substr(2, 9),
             name: paramName || 'Astrologer',
             apiBaseUrl: 'https://astrosolution-talktoastrologer.com'
           };
           setSession(tempSession);
           currentSession = tempSession;
-          console.log('Created temporary astrologer session from URL params:', tempSession);
+          console.log('Created astrologer session for direct access:', tempSession);
         } catch (error) {
-          console.error('Error creating session from URL params:', error);
+          console.error('Error creating session:', error);
         }
-      } else {
-        console.log('Session creation skipped:', {
-          hasCurrentSession: !!currentSession,
-          hasUniqueId: !!paramUniqueId,
-          hasAstrologerId: !!paramAstrologerId,
-          uniqueId: paramUniqueId,
-          astrologerId: paramAstrologerId
-        });
       }
       
       console.log('Final session check:', currentSession);
@@ -78,11 +70,10 @@ function AstrologerDashboardContent() {
       setSessionState(currentSession);
       
       let cleanup: (() => void) | undefined;
-      if (currentSession) {
-        loadAstrologerData(currentSession).then((cleanupFn) => {
-          cleanup = cleanupFn;
-        });
-      }
+      // Always load data, even without session
+      loadAstrologerData(currentSession).then((cleanupFn) => {
+        cleanup = cleanupFn;
+      });
       
       return () => {
         if (cleanup) cleanup();
@@ -97,16 +88,18 @@ function AstrologerDashboardContent() {
     };
   }, [router, searchParams]);
 
-  const loadAstrologerData = async (currentSession: AuthSessionData) => {
+  const loadAstrologerData = async (currentSession: AuthSessionData | null) => {
     try {
       setLoading(true);
       
+      // Use session data or defaults for direct access
+      const astroId = currentSession?.astrologerId || 'default_astrologer';
+      
       // Load active chat sessions for this astrologer
-      const sessions = await getUserChatSessions(currentSession.astrologerId || '', 'astrologer');
+      const sessions = await getUserChatSessions(astroId, 'astrologer');
       setActiveChats(sessions);
       
-      // Realtime chat requests for this astrologer sno
-      const astroId = currentSession.astrologerId || '';
+      // Realtime chat requests for this astrologer
       console.log('Setting up listener for astrologer:', astroId);
       const unsub = listenChatRequests(astroId, (reqs) => {
         console.log('Received chat requests:', reqs);
