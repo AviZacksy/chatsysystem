@@ -373,22 +373,21 @@ function AstrologerDashboardContent() {
 }
 
 export default function AstrologerDashboard() {
-  console.log('AstrologerDashboard component rendered - VERSION 4');
+  console.log('AstrologerDashboard component rendered - VERSION 5');
   
   // Test if page loads, then show proper content
   return (
     <div style={{ 
       padding: '50px', 
-      background: 'linear-gradient(45deg, #9b59b6, #3498db)', 
+      background: 'linear-gradient(45deg, #e74c3c, #f39c12)', 
       color: 'white', 
       fontSize: '24px',
       minHeight: '100vh',
       textAlign: 'center'
     }}>
       <h1>🎉 ASTROLOGER PAGE WORKING! 🎉</h1>
-      <p>✅ VERSION 4 - DEPLOYMENT SUCCESSFUL!</p>
-      <p>⏰ Time: {new Date().toLocaleString()}</p>
-      <p>🔗 URL: {typeof window !== 'undefined' ? window.location.href : 'Loading...'}</p>
+      <p>✅ VERSION 5 - DEPLOYMENT SUCCESSFUL!</p>
+      <p>🚀 No more hydration errors!</p>
       
       <div style={{ marginTop: '50px', fontSize: '18px', background: 'rgba(0,0,0,0.3)', padding: '20px', borderRadius: '10px' }}>
         <h2>🔧 Testing Steps:</h2>
